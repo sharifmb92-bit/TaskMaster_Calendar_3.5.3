@@ -4,7 +4,7 @@
   "description": "Agenda profesional, gestor de tareas con geofencing, notas y diario integrado de alta productividad.",
   "start_url": "./index.html",
   "scope": "./",
-  "id": "com.medbasha.taskmasterpro.v3.5.3",
+  "id": "com.medbasha.taskmasterpro.v353",
   "display": "standalone",
   "display_override": [
     "window-controls-overlay",
@@ -50,7 +50,9 @@
       "icons": [
         {
           "src": "./icon-192.png",
-          "sizes": "192x192"
+          "sizes": "192x192",
+          "type": "image/png",
+          "purpose": "any"
         }
       ]
     },
@@ -62,7 +64,9 @@
       "icons": [
         {
           "src": "./icon-192.png",
-          "sizes": "192x192"
+          "sizes": "192x192",
+          "type": "image/png",
+          "purpose": "any"
         }
       ]
     }
