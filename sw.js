@@ -77,12 +77,14 @@ self.addEventListener('push', (event) => {
     body: data.body || 'Recordatorio de tarea o evento',
     icon: './icon-192.png',
     badge: './icon-192.png',
-    vibrate: [200, 100, 200, 100, 200],
+    vibrate: [500, 110, 500, 110, 450, 110, 200, 110, 170, 110, 450, 110, 200, 110, 170],
     data: {
       url: data.url || './index.html'
     },
-    tag: 'taskmaster-notification',
+    tag: 'taskmaster-notification-' + Date.now(),
     renotify: true,
+    requireInteraction: true,
+    silent: false,
     actions: [
       { action: 'open', title: 'Ver en App 📱' },
       { action: 'close', title: 'Cerrar ✕' }
