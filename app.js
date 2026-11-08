@@ -38,17 +38,96 @@ const i18nDict = {
     }
 };
 
-// DICCIONARIO DE MOODS Y CONSEJOS MOTIVACIONALES ENRIQUECIDOS (v3.5.3)
+/* --- DICCIONARIO DE MOODS INTELIGENTE CON ROTACIÓN DINÁMICA DE CONSEJOS (v3.5.3 | medbasha) --- */
 const moodPresets = {
-    '🌟': { label: 'Radiante', tip: '¡Aprovecha este gran impulso para avanzar en tus metas más importantes hoy!' },
-    '😊': { label: 'Contento', tip: 'Mantén esta actitud positiva y contagia tu buena energía a los demás.' },
-    '🧘': { label: 'Tranquilo', tip: 'Un estado mental sereno es la mejor base para tomar decisiones acertadas.' },
-    '☕': { label: 'Rutina', tip: 'Paso a paso. La constancia silenciosa de cada día construye los grandes logros.' },
-    '🥱': { label: 'Cansado', tip: 'Escucha a tu cuerpo. Tómate las pausas necesarias y prioriza descansar bien.' },
-    '🤯': { label: 'Estresado', tip: 'Respira profundo. Enfócate en una sola tarea a la vez y delega el resto.' },
-    '😔': { label: 'Desanimado', tip: 'Todos tenemos días grises. Sé amable contigo mismo; mañana será un nuevo día.' },
-    '🎯': { label: 'Enfocado', tip: 'Estás en la zona. Elimina distracciones y ve directo a por tus objetivos.' }
+    '🌟': {
+        label: 'Radiante',
+        tips: [
+            '¡Aprovecha este gran impulso para avanzar en tus metas más difíciles hoy!',
+            'Tu energía está al máximo: es un momento perfecto para liderar o inspirar a otros.',
+            'Canaliza esta claridad mental en proyectos que tenías postergados.',
+            'Guarda esta buena sensación como recordatorio para los días más exigentes.'
+        ]
+    },
+    '😊': {
+        label: 'Contento',
+        tips: [
+            'Mantén esta actitud positiva y contagia tu buena energía a los demás.',
+            'Un estado de ánimo estable es ideal para trabajar con fluidez y sin estrés.',
+            'Disfruta de los pequeños detalles de tu jornada mientras cumples tus tareas.',
+            'La tranquilidad y el buen humor son la mejor fórmula de productividad.'
+        ]
+    },
+    '🧘': {
+        label: 'Tranquilo',
+        tips: [
+            'Un estado mental sereno es la mejor base para tomar decisiones acertadas.',
+            'Aprovecha esta calma para priorizar lo verdaderamente importante de la semana.',
+            'Trabajar sin prisa pero sin pausa mantiene tu mente despejada.',
+            'Mantén tu ritmo constante; la serenidad evita cometer errores por precipitación.'
+        ]
+    },
+    '☕': {
+        label: 'Rutina',
+        tips: [
+            'Paso a paso. La constancia silenciosa de cada día construye los grandes logros.',
+            'Céntrate en cumplir tus hábitos clave hoy; la disciplina supera a la motivación.',
+            'Haz una pausa breve entre tareas para mantener la frescura durante la jornada.',
+            'Incluso los días ordinarios suman un avance significativo si mantienes el foco.'
+        ]
+    },
+    '🥱': {
+        label: 'Cansado',
+        tips: [
+            'Escucha a tu cuerpo. Tómate las pausas necesarias y prioriza descansar bien.',
+            'Reduce la exigencia hoy: enfócate solo en lo imprescindible y delega lo secundario.',
+            'Una caminata corta o beber agua fresca puede darte el respiro que necesitas.',
+            'Recuerda que parar a tiempo para recuperar fuerzas también forma parte del trabajo.'
+        ]
+    },
+    '🤯': {
+        label: 'Estresado',
+        tips: [
+            'Respira profundo. Divide esa tarea grande en 3 pasos muy pequeños y haz solo el primero.',
+            'Desconecta de las notificaciones durante 20 minutos para recuperar el control.',
+            'No intentes abarcarlo todo a la vez: prioriza lo urgente y deja el resto para mañana.',
+            'Recuerda: la prisa genera bloqueos; mantén la calma y ve de una en una.'
+        ]
+    },
+    '😔': {
+        label: 'Desanimado',
+        tips: [
+            'Todos tenemos días grises. Sé amable contigo mismo; mañana será un nuevo día.',
+            'No juzgues tu productividad por hoy; concéntrate solo en lo básico y descansa.',
+            'A veces avanzar despacio sigue siendo avanzar. Haz lo que puedas sin presionarte.',
+            'Busca un momento al final del día para algo que te reconforte y descanse la mente.'
+        ]
+    },
+    '🎯': {
+        label: 'Enfocado',
+        tips: [
+            'Estás en la zona de máximo rendimiento. Elimina distracciones y ve por tus objetivos.',
+            'Aprovecha este bloque de concentración para cerrar las tareas más complejas.',
+            'Mantén este ritmo limpio y verás cómo liberas tu agenda para el resto de la semana.',
+            'La determinación de hoy será tu tranquilidad de mañana.'
+        ]
+    }
 };
+
+// Algoritmo matemático para rotar el consejo diariamente según el día del año
+function getSmartMoodTip(mood) {
+    const data = moodPresets[mood];
+    if (!data || !data.tips || data.tips.length === 0) return '';
+    
+    const now = new Date();
+    const startOfYear = new Date(now.getFullYear(), 0, 0);
+    const diff = now - startOfYear;
+    const oneDay = 1000 * 60 * 60 * 24;
+    const dayOfYear = Math.floor(diff / oneDay);
+    
+    const tipIndex = dayOfYear % data.tips.length;
+    return data.tips[tipIndex];
+}
 
 function getDeviceLang() {
     const lang = (navigator.language || 'es').substring(0, 2).toLowerCase();
@@ -362,7 +441,7 @@ async function updateDashboardProfileCards() {
         }
     });
 
-    // ACTUALIZACIÓN DE LEMA DEL DÍA Y CONSEJO MOTIVACIONAL DESTACADO EN INICIO (v3.5.3)
+    // ACTUALIZACIÓN DE LEMA DEL DÍA Y CONSEJO MOTIVACIONAL DESTACADO EN INICIO CON FRASES INTELIGENTES
     const moodSummaryEl = document.getElementById('dash-journal-summary');
     const langKey = getDeviceLang();
     const t = i18nDict[langKey];
@@ -370,13 +449,14 @@ async function updateDashboardProfileCards() {
     if (moodSummaryEl) {
         if (journalToday) {
             const mood = journalToday.mood || '😊';
-            const moodData = moodPresets[mood] || { label: 'Ánimo', tip: '' };
+            const moodData = moodPresets[mood] || { label: 'Ánimo' };
+            const smartTip = getSmartMoodTip(mood);
             const text = journalToday.text ? journalToday.text : '';
 
             moodSummaryEl.innerHTML = `
                 <div style="font-size: 1.05rem; font-weight: 800; color: var(--accent); margin-bottom: 4px;">${mood} ${moodData.label.toUpperCase()} - LEMA DE HOY:</div>
                 <div style="font-size: 0.95rem; font-style: italic; font-weight: 600; line-height: 1.4; margin-bottom: 6px;">"${text}"</div>
-                ${moodData.tip ? `<div style="font-size: 0.85rem; color: var(--text-muted); background: rgba(255,255,255,0.05); padding: 6px 10px; border-radius: 8px; border-left: 3px solid var(--accent);">💡 <i>${moodData.tip}</i></div>` : ''}
+                ${smartTip ? `<div style="font-size: 0.85rem; color: var(--text-muted); background: rgba(255,255,255,0.05); padding: 6px 10px; border-radius: 8px; border-left: 3px solid var(--accent);">💡 <i>${smartTip}</i></div>` : ''}
             `;
         } else {
             moodSummaryEl.innerHTML = `<i>${t.journalEmpty}</i>`;
@@ -384,7 +464,7 @@ async function updateDashboardProfileCards() {
     }
 }
 
-/* --- LÓGICA DEL DIARIO & MOOD TRACKER ENRIQUECIDO (v3.5.3) --- */
+/* --- LÓGICA DEL DIARIO & MOOD TRACKER ENRIQUECIDO CON CONSEJO DINÁMICO (v3.5.3) --- */
 function openJournalModal() {
     const modal = document.getElementById('journal-modal');
     if (modal) {
@@ -407,8 +487,9 @@ function setJournalMood(mood, element) {
 
     const tipBox = document.getElementById('journal-mood-tip-box');
     const moodData = moodPresets[mood];
+    const smartTip = getSmartMoodTip(mood);
     if (tipBox && moodData) {
-        tipBox.innerHTML = `<b>${mood} Estado: ${moodData.label}</b><br>💡 <i>${moodData.tip}</i>`;
+        tipBox.innerHTML = `<b>${mood} Estado: ${moodData.label}</b><br>💡 <i>${smartTip}</i>`;
         tipBox.style.display = 'block';
     }
 }
@@ -427,8 +508,9 @@ async function loadJournalEntry() {
     }
 
     const moodData = moodPresets[selectedJournalMood];
+    const smartTip = getSmartMoodTip(selectedJournalMood);
     if (tipBox && moodData) {
-        tipBox.innerHTML = `<b>${selectedJournalMood} Estado: ${moodData.label}</b><br>💡 <i>${moodData.tip}</i>`;
+        tipBox.innerHTML = `<b>${selectedJournalMood} Estado: ${moodData.label}</b><br>💡 <i>${smartTip}</i>`;
         tipBox.style.display = 'block';
     }
 }
@@ -1267,16 +1349,23 @@ async function convertNoteToAlarm() {
     }
 }
 
-// 1. BARRA DE SEMANA CORREGIDA (DOMINGO INCLUIDO)
+// BARRA DE SEMANA CON LÓGICA DE PLANIFICACIÓN (DOMINGO MUESTRA LA PRÓXIMA SEMANA)
 function renderWeekBar() {
     const container = document.getElementById('week-bar');
     if (!container) return;
     container.innerHTML = '';
     
     const curr = new Date();
-    const dayOfWeek = curr.getDay() === 0 ? 7 : curr.getDay(); // Domingo es 7
+    const dayOfWeek = curr.getDay(); // 0 es Domingo
     const firstDay = new Date(curr);
-    firstDay.setDate(curr.getDate() - dayOfWeek + 1);
+
+    if (dayOfWeek === 0) {
+        // Si es Domingo, avanzar al Lunes de la semana que entra
+        firstDay.setDate(curr.getDate() + 1);
+    } else {
+        // De Lunes a Sábado, calcular el Lunes de la semana actual
+        firstDay.setDate(curr.getDate() - dayOfWeek + 1);
+    }
 
     const dayNames = ['L','M','X','J','V','S','D'];
 
@@ -1317,7 +1406,7 @@ function handleSaveTaskClick() {
     }
 }
 
-// 3. APERTURA AUTOMÁTICA DEL RELOJ AL PEDIR ALARMA
+// APERTURA AUTOMÁTICA DEL RELOJ AL PEDIR ALARMA
 function promptAddReminderTime() {
     const modal = document.getElementById('reminder-prompt-modal');
     if (modal) modal.style.display = 'none';
@@ -1466,7 +1555,7 @@ async function renderDayTasksList() {
     await updateTaskProgress();
 }
 
-// 4. ACTUALIZACIÓN DE HORA Y RE-RENDERIZADO REACTIVO DESDE "RECORDAR"
+// ACTUALIZACIÓN DE HORA Y RE-RENDERIZADO REACTIVO DESDE "RECORDAR"
 async function setTaskTimePrompt(todoId, title, currentTime) {
     const timeStr = prompt(`⏰ Asignar hora de alarma para:\n"${title}"`, currentTime || "09:00");
     if (!timeStr) return;
@@ -1688,7 +1777,7 @@ function handleLocSelectChange(val) {
     if (val === 'custom_map') openMapPicker('event_custom');
 }
 
-// 2. APERTURA AUTOMÁTICA DEL MAPA SOBRE EL MODAL
+// APERTURA AUTOMÁTICA DEL MAPA SOBRE EL MODAL
 function openMapPicker(type) {
     activeTargetType = type;
     const mapModal = document.getElementById('map-modal');
@@ -1875,7 +1964,7 @@ async function renderCalSelectedEvents() {
         noteDiv.className = 'event-card card-note';
 
         const moodEmoji = journalRecord?.mood ? journalRecord.mood : '📝';
-        const moodData = moodPresets[moodEmoji] || { label: 'Diario', tip: '' };
+        const moodData = moodPresets[moodEmoji] || { label: 'Diario' };
         const journalText = journalRecord?.text ? journalRecord.text : '';
         const noteText = noteRecord?.html || noteRecord?.text || '';
 
@@ -1996,7 +2085,7 @@ function updatePermissionBanner() {
     }
 }
 
-// 5. REGISTRO Y GUARDADO DIRECTO DEL TOKEN FCM EN REALTIME DATABASE
+// REGISTRO Y GUARDADO DIRECTO DEL TOKEN FCM EN REALTIME DATABASE
 function requestPermissions() {
     unlockAudioContext();
     if ('Notification' in window) {
