@@ -1267,17 +1267,22 @@ async function convertNoteToAlarm() {
     }
 }
 
+// 1. BARRA DE SEMANA CORREGIDA (DOMINGO INCLUIDO)
 function renderWeekBar() {
     const container = document.getElementById('week-bar');
     if (!container) return;
     container.innerHTML = '';
     
     const curr = new Date();
-    const first = curr.getDate() - curr.getDay() + 1;
+    const dayOfWeek = curr.getDay() === 0 ? 7 : curr.getDay(); // Domingo es 7
+    const firstDay = new Date(curr);
+    firstDay.setDate(curr.getDate() - dayOfWeek + 1);
+
     const dayNames = ['L','M','X','J','V','S','D'];
 
     for (let i = 0; i < 7; i++) {
-        const nextDay = new Date(curr.setDate(first + i));
+        const nextDay = new Date(firstDay);
+        nextDay.setDate(firstDay.getDate() + i);
         const dateKey = getFormattedDateKey(nextDay);
         const dayNum = nextDay.getDate();
 
@@ -1312,11 +1317,21 @@ function handleSaveTaskClick() {
     }
 }
 
+// 3. APERTURA AUTOMÁTICA DEL RELOJ AL PEDIR ALARMA
 function promptAddReminderTime() {
     const modal = document.getElementById('reminder-prompt-modal');
     if (modal) modal.style.display = 'none';
     const timeInput = document.getElementById('taskTimeInput');
-    if (timeInput) timeInput.focus();
+    if (timeInput) {
+        timeInput.focus();
+        if ('showPicker' in HTMLInputElement.prototype) {
+            try {
+                timeInput.showPicker();
+            } catch (e) {
+                console.log("showPicker no soportado en este contexto:", e);
+            }
+        }
+    }
 }
 
 function promptSaveWithoutReminder() {
@@ -1451,39 +1466,46 @@ async function renderDayTasksList() {
     await updateTaskProgress();
 }
 
+// 4. ACTUALIZACIÓN DE HORA Y RE-RENDERIZADO REACTIVO DESDE "RECORDAR"
 async function setTaskTimePrompt(todoId, title, currentTime) {
     const timeStr = prompt(`⏰ Asignar hora de alarma para:\n"${title}"`, currentTime || "09:00");
     if (!timeStr) return;
 
     try {
         await db.transaction('rw', db.todos, db.events, async () => {
-            await db.todos.update(todoId, { time: timeStr, updatedAt: Date.now() });
-
-            const eventId = 'ev_t_' + todoId;
-            const eventData = {
-                id: eventId,
-                date: selectedDateStr,
-                title: title,
-                details: 'Recordatorio de Tarea',
-                time: timeStr,
-                priority: 'medium',
-                loc: 'none',
-                notified: false,
-                alarmFired: false,
-                done: false,
-                updatedAt: Date.now()
-            };
-
-            await db.events.put(eventData);
-            syncEventWithFirebase(eventData);
+            const isTodo = await db.todos.get(todoId);
+            if (isTodo) {
+                await db.todos.update(todoId, { time: timeStr, updatedAt: Date.now() });
+                const eventId = 'ev_t_' + todoId;
+                const eventData = {
+                    id: eventId,
+                    date: selectedDateStr,
+                    title: title,
+                    details: 'Recordatorio de Tarea',
+                    time: timeStr,
+                    priority: 'medium',
+                    loc: 'none',
+                    notified: false,
+                    alarmFired: false,
+                    done: false,
+                    updatedAt: Date.now()
+                };
+                await db.events.put(eventData);
+                syncEventWithFirebase(eventData);
+            } else {
+                await db.events.update(todoId, { time: timeStr, alarmFired: false, updatedAt: Date.now() });
+                const updatedEv = await db.events.get(todoId);
+                if (updatedEv) syncEventWithFirebase(updatedEv);
+            }
         });
 
         await renderDayTasksList();
+        await renderCalSelectedEvents();
         await initCalendar();
         await updateDashboardProfileCards();
-        alert(`✓ Alarma programada a las ${timeStr} para: "${title}"`);
+        triggerHaptic();
     } catch (e) {
-        console.error("Error al asignar hora a tarea:", e);
+        console.error("Error al asignar hora:", e);
     }
 }
 
@@ -1666,10 +1688,14 @@ function handleLocSelectChange(val) {
     if (val === 'custom_map') openMapPicker('event_custom');
 }
 
+// 2. APERTURA AUTOMÁTICA DEL MAPA SOBRE EL MODAL
 function openMapPicker(type) {
     activeTargetType = type;
     const mapModal = document.getElementById('map-modal');
-    if (mapModal) mapModal.style.display = 'flex';
+    if (mapModal) {
+        mapModal.style.display = 'flex';
+        mapModal.style.zIndex = '99999';
+    }
 
     if (!leafletMap) {
         leafletMap = L.map('map').setView([tempCoords.lat, tempCoords.lon], 15);
@@ -1685,7 +1711,12 @@ function openMapPicker(type) {
             tempCoords = { lat: pos.lat, lon: pos.lng };
         });
     }
-    setTimeout(() => { leafletMap.invalidateSize(); centerMapOnUserGPS(); }, 250);
+    setTimeout(() => { 
+        if (leafletMap) {
+            leafletMap.invalidateSize(); 
+            centerMapOnUserGPS(); 
+        }
+    }, 150);
 }
 
 function centerMapOnUserGPS() {
@@ -1965,6 +1996,7 @@ function updatePermissionBanner() {
     }
 }
 
+// 5. REGISTRO Y GUARDADO DIRECTO DEL TOKEN FCM EN REALTIME DATABASE
 function requestPermissions() {
     unlockAudioContext();
     if ('Notification' in window) {
@@ -1972,7 +2004,9 @@ function requestPermissions() {
             updatePermissionBanner();
             if (perm === 'granted' && fbMessaging && navigator.onLine) {
                 fbMessaging.getToken({ vapidKey }).then(token => {
-                    fbDB.ref('device_tokens/main_device').set(token);
+                    if (token) {
+                        fbDB.ref('device_tokens/main_device').set(token);
+                    }
                 }).catch(err => console.error("Error FCM Token:", err));
             }
         });
