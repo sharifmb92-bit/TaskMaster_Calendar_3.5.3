@@ -61,7 +61,7 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-// Recepción de Avisos Push Instantáneos Multi-Dispositivo (Firebase / WebPush)
+// Recepción de Avisos Push Limpios y Seguros (Sin alertas de spam)
 self.addEventListener('push', (event) => {
   let data = { title: 'TaskMaster Pro', body: '¡Tienes un nuevo aviso programado!' };
   
@@ -73,13 +73,17 @@ self.addEventListener('push', (event) => {
     }
   }
 
+  // Generar la URL absoluta limpia del origen (GitHub Pages)
+  const baseUrl = self.location.origin + self.location.pathname.replace('sw.js', '');
+  const targetUrl = data.url ? new URL(data.url, baseUrl).href : baseUrl + 'index.html';
+
   const options = {
     body: data.body || 'Recordatorio de tarea o evento',
-    icon: './icon-192.png',
-    badge: './icon-192.png',
-    vibrate: [500, 110, 500, 110, 450, 110, 200, 110, 170, 110, 450, 110, 200, 110, 170],
+    icon: baseUrl + 'icon-192.png',
+    badge: baseUrl + 'icon-192.png',
+    vibrate: [500, 110, 500, 110, 450, 110, 200, 110, 170],
     data: {
-      url: data.url || './index.html'
+      url: targetUrl
     },
     tag: 'taskmaster-notification-' + Date.now(),
     renotify: true,
@@ -96,11 +100,15 @@ self.addEventListener('push', (event) => {
   );
 });
 
-// Acción al hacer clic en la notificación del móvil, tablet o PC
+// Acción al hacer clic en la notificación del móvil
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   
   if (event.action === 'close') return;
+
+  const urlToOpen = (event.notification.data && event.notification.data.url) 
+    ? event.notification.data.url 
+    : self.location.origin + self.location.pathname.replace('sw.js', 'index.html');
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
@@ -110,7 +118,7 @@ self.addEventListener('notificationclick', (event) => {
         }
       }
       if (clients.openWindow) {
-        return clients.openWindow('./index.html');
+        return clients.openWindow(urlToOpen);
       }
     })
   );
