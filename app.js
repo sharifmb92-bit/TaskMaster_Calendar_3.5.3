@@ -90,7 +90,7 @@ const moodPresets = {
         tips: [
             'Respira profundo. Divide esa tarea grande en 3 pasos muy pequeños y haz solo el primero.',
             'Desconecta de las notificaciones durante 20 minutos para recuperar el control.',
-            'No intentes abararlo todo a la vez: prioriza lo urgente y deja el resto para mañana.',
+            'No intentes abarcarlo todo a la vez: prioriza lo urgente y deja el resto para mañana.',
             'Recuerda: la prisa genera bloqueos; mantén la calma y ve de una en una.'
         ]
     },
@@ -902,7 +902,7 @@ async function loadTabData() {
     await renderCalSelectedEvents();
 }
 
-/* --- MOTOR DE VOZ IA INTELIGENTE CON GUARDADO TRANSACCIONAL --- */
+/* --- MOTOR DE VOZ IA INTELIGENTE CON RECONOCIMIENTO DE REPETICIONES Y GUARDADO TRANSACCIONAL --- */
 function toggleGlobalVoiceAssistant() {
     const micBtn = document.getElementById('btn-global-mic');
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -949,6 +949,19 @@ async function processUniversalVoiceCommand(phrase) {
     const lower = phrase.toLowerCase();
     let targetDate = new Date();
 
+    // 1. Detección automática de repetición periódica (ej. "todos los viernes", "cada día")
+    let repeatMode = 'none';
+    if (lower.includes('todos los') || lower.includes('cada') || lower.includes('todas las')) {
+        if (lower.includes('día') || lower.includes('dia') || lower.includes('diariamente')) {
+            repeatMode = 'daily';
+        } else {
+            repeatMode = 'weekly'; // Asigna repetición semanal por defecto al pedir un día repetido
+        }
+    } else if (lower.includes('cada mes') || lower.includes('mensualmente')) {
+        repeatMode = 'monthly';
+    }
+
+    // 2. Mapeo del día de la semana
     const weekDaysMap = { 'domingo': 0, 'lunes': 1, 'martes': 2, 'miércoles': 3, 'miercoles': 3, 'jueves': 4, 'viernes': 5, 'sábado': 6, 'sabado': 6 };
     let weekDayFound = null;
 
@@ -986,6 +999,7 @@ async function processUniversalVoiceCommand(phrase) {
 
     const targetDateKey = getFormattedDateKey(targetDate);
 
+    // 3. Extracción de horas
     let timeFound = '';
     const standardTimeMatch = lower.match(/(\d{1,2})[:\.](\d{2})/);
     const spokenTimeMatch = lower.match(/(?:a las|at)\s*(\d{1,2})\s*(?:y|\:)\s*(\d{1,2})/i);
@@ -1016,10 +1030,10 @@ async function processUniversalVoiceCommand(phrase) {
 
     const isEvent = lower.includes('vacaciones') || lower.includes('cita') || lower.includes('reunión') || 
                     lower.includes('evento') || lower.includes('clase') || lower.includes('gimnasio') || 
-                    lower.includes('médico') || lower.includes('doctor') || (timeFound !== '');
+                    lower.includes('médico') || lower.includes('doctor');
 
     try {
-        if (isEvent) {
+        if (isEvent && repeatMode === 'none') {
             const eventId = 'ev_' + Date.now();
             const eventData = {
                 id: eventId,
@@ -1057,7 +1071,7 @@ async function processUniversalVoiceCommand(phrase) {
                     done: false,
                     category: category,
                     subtasks: [],
-                    repeat: 'none',
+                    repeat: repeatMode,
                     loc: loc,
                     time: timeFound,
                     updatedAt: Date.now()
@@ -1071,7 +1085,9 @@ async function processUniversalVoiceCommand(phrase) {
             await renderDayTasksList();
             await initCalendar();
             await updateDashboardProfileCards();
-            alert(`✓ Tarea asignada al ${targetDateKey}:\n"${phrase}"`);
+            
+            const repeatMsg = repeatMode !== 'none' ? ` (Repetición: ${repeatMode})` : '';
+            alert(`✓ Tarea asignada al ${targetDateKey}${repeatMsg}:\n"${phrase}"`);
             switchTab('tasks');
         }
     } catch (err) {
