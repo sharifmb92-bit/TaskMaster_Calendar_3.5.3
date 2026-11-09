@@ -51,5 +51,21 @@
       "url": "./index.html?action=journal",
       "icons": [{ "src": "./icon-192.png", "sizes": "192x192" }]
     }
+  ],
+  "screenshots": [
+    {
+      "src": "./screenshot-mobile-1.jpg",
+      "sizes": "1080x1920",
+      "type": "image/jpeg",
+      "form_factor": "narrow",
+      "label": "Vista de tareas y agenda diaria"
+    },
+    {
+      "src": "./screenshot-mobile-2.jpg",
+      "sizes": "1080x1920",
+      "type": "image/jpeg",
+      "form_factor": "narrow",
+      "label": "Calendario y diario de reflexiones"
+    }
   ]
 }
