@@ -1,4 +1,4 @@
-// medbasha - TaskMaster Pro v3.5.3 Logica Principal Unificada
+/* TaskMaster Calendar Pro_v 3.5.3 | medbasha */
 const config = { version: '3.5.3', sysSignature: 'medbasha' };
 
 const firebaseConfig = {
@@ -90,7 +90,7 @@ const moodPresets = {
         tips: [
             'Respira profundo. Divide esa tarea grande en 3 pasos muy pequeños y haz solo el primero.',
             'Desconecta de las notificaciones durante 20 minutos para recuperar el control.',
-            'No intentes abarcarlo todo a la vez: prioriza lo urgente y deja el resto para mañana.',
+            'No intentes abararlo todo a la vez: prioriza lo urgente y deja el resto para mañana.',
             'Recuerda: la prisa genera bloqueos; mantén la calma y ve de una en una.'
         ]
     },
@@ -2085,9 +2085,11 @@ function updatePermissionBanner() {
     }
 }
 
-// REGISTRO Y GUARDADO DIRECTO DEL TOKEN FCM EN REALTIME DATABASE
+// REGISTRO Y GUARDADO DEL TOKEN FCM PARA CUALQUIER DISPOSITIVO
 function requestPermissions() {
     unlockAudioContext();
+    triggerHaptic();
+
     if ('Notification' in window) {
         Notification.requestPermission().then((perm) => {
             updatePermissionBanner();
@@ -2095,12 +2097,12 @@ function requestPermissions() {
                 fbMessaging.getToken({ vapidKey }).then(token => {
                     if (token) {
                         fbDB.ref('device_tokens/main_device').set(token);
+                        console.log("Token FCM registrado correctamente en Firebase.");
                     }
-                }).catch(err => console.error("Error FCM Token:", err));
+                }).catch(err => console.error("Error al obtener FCM Token:", err));
             }
         });
     }
-    triggerHaptic();
 }
 
 async function updateLocationUI() {
