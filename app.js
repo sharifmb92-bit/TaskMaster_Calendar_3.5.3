@@ -877,15 +877,46 @@ function handleFabClick() {
     }
 }
 
+/* --- NAVEGACIÓN CORREGIDA DE MES Y DÍA ACTUAL (v3.5.3 | medbasha) --- */
 async function goToToday() {
-    const t = new Date();
-    currentYear = t.getFullYear();
-    currentMonth = t.getMonth();
-    selectedDateStr = getFormattedDateKey(t);
+    const today = new Date();
+    currentYear = today.getFullYear();
+    currentMonth = today.getMonth();
+    selectedDateStr = getFormattedDateKey(today);
+
     const dateLabel = document.getElementById('cal-selected-date-label');
     if (dateLabel) dateLabel.innerText = selectedDateStr;
+
     await initCalendar();
     await renderCalSelectedEvents();
+    await loadTabData();
+}
+
+async function changeMonth(dir) {
+    currentMonth += dir;
+    if (currentMonth < 0) { 
+        currentMonth = 11; 
+        currentYear--; 
+    } else if (currentMonth > 11) { 
+        currentMonth = 0; 
+        currentYear++; 
+    }
+    
+    // Si volvemos al mes y año actuales reales, seleccionar el día de hoy
+    const today = new Date();
+    if (currentYear === today.getFullYear() && currentMonth === today.getMonth()) {
+        selectedDateStr = getFormattedDateKey(today);
+    } else {
+        // Si navegamos a otro mes, seleccionar el día 1 de dicho mes
+        selectedDateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01`;
+    }
+
+    const label = document.getElementById('cal-selected-date-label');
+    if (label) label.innerText = selectedDateStr;
+
+    await initCalendar();
+    await renderCalSelectedEvents();
+    await loadTabData();
 }
 
 async function loadTabData() {
@@ -1854,18 +1885,6 @@ async function confirmMapLocation() {
         await updateLocationUI();
     }
     closeMapPicker();
-}
-
-async function changeMonth(dir) {
-    currentMonth += dir;
-    if (currentMonth < 0) { currentMonth = 11; currentYear--; }
-    else if (currentMonth > 11) { currentMonth = 0; currentYear++; }
-    
-    selectedDateStr = `${currentYear}-${String(currentMonth+1).padStart(2,'0')}-01`;
-    const label = document.getElementById('cal-selected-date-label');
-    if (label) label.innerText = selectedDateStr;
-    await initCalendar();
-    await renderCalSelectedEvents();
 }
 
 async function initCalendar() {
