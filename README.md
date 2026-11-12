@@ -1,1 +1,1 @@
-# TaskMaster_Calendar_3.5.3
+# TaskMaster_Calendar_3.6.0
