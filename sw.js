@@ -1,125 +1,152 @@
-/* TaskMaster Calendar Pro_v 3.5.3 | medbasha */
-const CACHE_NAME = 'taskmaster-v3-5-3';
+/* TaskMaster Calendar Pro_v 3.6.0 | medbasha */
+const CACHE_NAME = 'taskmaster-v3-6-0';
+
 const ASSETS_TO_CACHE = [
-  './',
-  './index.html',
-  './manifest.json',
-  './icon-192.png',
-  './icon-512.png',
-  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
-  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
-  'https://unpkg.com/dexie@3.2.4/dist/dexie.min.js'
+    './',
+    './index.html',
+    './app.js',
+    './manifest.json',
+    './icon.svg',
+    './icon-192.png',
+    './icon-152.png',
+    './icon-512.png'
 ];
 
-// Instalación del Service Worker y almacenamiento en caché
+// 1. INSTALACIÓN Y PRE-CACHÉ CON RUTAS RELATIVAS PURAS
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS_TO_CACHE);
-    }).then(() => self.skipWaiting())
-  );
-});
-
-// Activación y limpieza de cachés antiguas
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cache) => {
-          if (cache !== CACHE_NAME) {
-            return caches.delete(cache);
-          }
+    self.skipWaiting();
+    event.waitUntil(
+        caches.open(CACHE_NAME).then((cache) => {
+            return Promise.allSettled(
+                ASSETS_TO_CACHE.map((url) =>
+                    cache.add(url).catch((err) => {
+                        console.warn('[SW v3.6.0] Recurso opcional omitido en caché:', url, err);
+                    })
+                )
+            );
         })
-      );
-    }).then(() => self.clients.claim())
-  );
+    );
 });
 
-// Estrategia Network-First con respaldo en caché
+// 2. ACTIVACIÓN Y ELIMINACIÓN INMEDIATA DE VERSIONES ANTERIORES
+self.addEventListener('activate', (event) => {
+    event.waitUntil(
+        caches.keys().then((cacheNames) => {
+            return Promise.all(
+                cacheNames.map((cache) => {
+                    if (cache !== CACHE_NAME) {
+                        return caches.delete(cache);
+                    }
+                })
+            );
+        }).then(() => self.clients.claim())
+    );
+});
+
+// 3. INTERCEPCIÓN DE RED: NETWORK-FIRST PARA CÓDIGO Y CACHE-FIRST PARA ESTÁTICOS
 self.addEventListener('fetch', (event) => {
-  if (event.request.method !== 'GET') return;
-  
-  event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        if (response && response.status === 200 && response.type === 'basic') {
-          const responseToCache = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseToCache);
-          });
-        }
-        return response;
-      })
-      .catch(() => {
-        return caches.match(event.request).then((cachedResponse) => {
-          if (cachedResponse) return cachedResponse;
-          if (event.request.mode === 'navigate') {
-            return caches.match('./index.html');
-          }
-        });
-      })
-  );
-});
+    if (event.request.method !== 'GET') return;
 
-// Recepción de Avisos Push Limpios y Seguros (Sin alertas de spam)
-self.addEventListener('push', (event) => {
-  let data = { title: 'TaskMaster Pro', body: '¡Tienes un nuevo aviso programado!' };
-  
-  if (event.data) {
-    try {
-      data = event.data.json();
-    } catch (e) {
-      data.body = event.data.text();
+    const reqUrl = new URL(event.request.url);
+
+    // No interceptar peticiones externas a Firebase o APIs en tiempo real
+    if (
+        reqUrl.hostname.includes('firebaseio.com') ||
+        reqUrl.hostname.includes('firebasedatabase.app') ||
+        reqUrl.hostname.includes('googleapis.com')
+    ) {
+        return;
     }
-  }
 
-  // Generar la URL absoluta limpia del origen (GitHub Pages)
-  const baseUrl = self.location.origin + self.location.pathname.replace('sw.js', '');
-  const targetUrl = data.url ? new URL(data.url, baseUrl).href : baseUrl + 'index.html';
+    // Estrategia Network-First para HTML y JS para garantizar siempre la v3.6.0
+    if (
+        event.request.mode === 'navigate' ||
+        reqUrl.pathname.endsWith('.html') ||
+        reqUrl.pathname.endsWith('.js')
+    ) {
+        event.respondWith(
+            fetch(event.request)
+                .then((networkResponse) => {
+                    if (networkResponse && networkResponse.status === 200) {
+                        const responseClone = networkResponse.clone();
+                        caches.open(CACHE_NAME).then((cache) => {
+                            cache.put(event.request, responseClone);
+                        });
+                    }
+                    return networkResponse;
+                })
+                .catch(() => caches.match(event.request))
+        );
+        return;
+    }
 
-  const options = {
-    body: data.body || 'Recordatorio de tarea o evento',
-    icon: baseUrl + 'icon-192.png',
-    badge: baseUrl + 'icon-192.png',
-    vibrate: [500, 110, 500, 110, 450, 110, 200, 110, 170],
-    data: {
-      url: targetUrl
-    },
-    tag: 'taskmaster-notification-' + Date.now(),
-    renotify: true,
-    requireInteraction: true,
-    silent: false,
-    actions: [
-      { action: 'open', title: 'Ver en App 📱' },
-      { action: 'close', title: 'Cerrar ✕' }
-    ]
-  };
-
-  event.waitUntil(
-    self.registration.showNotification(data.title || 'TaskMaster Calendar Pro_v 3.5.3', options)
-  );
+    // Estrategia Cache-First con actualización silenciosa para iconos y manifest
+    event.respondWith(
+        caches.match(event.request).then((cachedResponse) => {
+            if (cachedResponse) {
+                return cachedResponse;
+            }
+            return fetch(event.request).then((networkResponse) => {
+                if (networkResponse && networkResponse.status === 200 && reqUrl.origin === self.location.origin) {
+                    const responseClone = networkResponse.clone();
+                    caches.open(CACHE_NAME).then((cache) => {
+                        cache.put(event.request, responseClone);
+                    });
+                }
+                return networkResponse;
+            });
+        })
+    );
 });
 
-// Acción al hacer clic en la notificación del móvil
+// 4. NOTIFICACIONES PUSH EN SEGUNDO PLANO (FIREBASE CLOUD MESSAGING)
+try {
+    importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js');
+    importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js');
+
+    firebase.initializeApp({
+        apiKey: "AIzaSyAelzQOy8KFQ5OZkctKJS2DZUaxvaLMfRE",
+        authDomain: "taskmastercalendar-a779e.firebaseapp.com",
+        databaseURL: "https://taskmastercalendar-a779e-default-rtdb.europe-west1.firebasedatabase.app",
+        projectId: "taskmastercalendar-a779e",
+        storageBucket: "taskmastercalendar-a779e.firebasestorage.app",
+        messagingSenderId: "628005433300",
+        appId: "1:628005433300:web:b6a39ed06922a34de07041"
+    });
+
+    const messaging = firebase.messaging();
+
+    messaging.onBackgroundMessage((payload) => {
+        const title = (payload.notification && payload.notification.title) || 'TaskMaster Alerta';
+        const body = (payload.notification && payload.notification.body) || 'Tienes un aviso programado.';
+
+        return self.registration.showNotification(title, {
+            body: body,
+            icon: './icon-192.png',
+            badge: './icon-192.png',
+            vibrate: [200, 100, 200],
+            requireInteraction: true,
+            renotify: true,
+            tag: 'taskmaster-push-' + Date.now()
+        });
+    });
+} catch (err) {
+    console.warn('[SW v3.6.0] Modo offline sin scripts externos FCM:', err);
+}
+
+// 5. ACCIÓN AL TOCAR LA NOTIFICACIÓN EN EL MÓVIL
 self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
-  
-  if (event.action === 'close') return;
-
-  const urlToOpen = (event.notification.data && event.notification.data.url) 
-    ? event.notification.data.url 
-    : self.location.origin + self.location.pathname.replace('sw.js', 'index.html');
-
-  event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      for (let client of clientList) {
-        if (client.url.includes('index.html') && 'focus' in client) {
-          return client.focus();
-        }
-      }
-      if (clients.openWindow) {
-        return clients.openWindow(urlToOpen);
-      }
-    })
-  );
+    event.notification.close();
+    event.waitUntil(
+        clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+            for (const client of clientList) {
+                if ('focus' in client) {
+                    return client.focus();
+                }
+            }
+            if (clients.openWindow) {
+                return clients.openWindow('./index.html');
+            }
+        })
+    );
 });
