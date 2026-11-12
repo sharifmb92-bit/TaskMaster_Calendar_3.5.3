@@ -1,5 +1,5 @@
-/* TaskMaster Calendar Pro_v 3.5.3 | medbasha */
-const config = { version: '3.5.3', sysSignature: 'medbasha' };
+/* TaskMaster Calendar Pro_v 3.6.0 | medbasha */
+const config = { version: '3.6.0', sysSignature: 'medbasha' };
 
 const firebaseConfig = {
     apiKey: "AIzaSyAelzQOy8KFQ5OZkctKJS2DZUaxvaLMfRE",
@@ -15,6 +15,16 @@ const vapidKey = "BGClAqG08mtup_uhnNeCjWeJdZfLU-pnmrEpfXbkKf6uVTRjAAdu-4PO1ASiuA
 firebase.initializeApp(firebaseConfig);
 const fbDB = firebase.database();
 const fbMessaging = ('serviceWorker' in navigator && firebase.messaging.isSupported()) ? firebase.messaging() : null;
+
+// IDENTIFICADOR DE BÓVEDA DE AUTO-RECUPERACIÓN EN LA NUBE (v3.6.0)
+let activeVaultId = 'taskmaster_default_vault';
+
+function sanitizeFirebaseKey(rawKey) {
+    return String(rawKey || 'taskmaster_default_vault')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]/g, '_');
+}
 
 // DICCIONARIO DE TRADUCCIÓN AUTOMÁTICA REGIONAL (i18n)
 const i18nDict = {
@@ -38,7 +48,7 @@ const i18nDict = {
     }
 };
 
-/* --- DICCIONARIO DE MOODS INTELIGENTE CON ROTACIÓN DINÁMICA DE CONSEJOS (v3.5.3 | medbasha) --- */
+/* --- DICCIONARIO DE MOODS INTELIGENTE CON ROTACIÓN DINÁMICA DE CONSEJOS (v3.6.0 | medbasha) --- */
 const moodPresets = {
     '🌟': {
         label: 'Radiante',
@@ -114,7 +124,6 @@ const moodPresets = {
     }
 };
 
-// Algoritmo matemático para rotar el consejo diariamente según el día del año
 function getSmartMoodTip(mood) {
     const data = moodPresets[mood];
     if (!data || !data.tips || data.tips.length === 0) return '';
@@ -159,7 +168,6 @@ function applyAutoTranslations() {
     if (searchInput) searchInput.placeholder = t.searchPlaceholder;
 }
 
-// BADGE DINÁMICO DEL ICONO EN PANTALLA DE INICIO (v3.5.3)
 function updateAppBadge() {
     if ('setAppBadge' in navigator) {
         const currentDay = new Date().getDate();
@@ -167,12 +175,12 @@ function updateAppBadge() {
     }
 }
 
-// GESTIÓN DE CONEXIÓN ONLINE / OFFLINE Y SINCRONIZACIÓN
-window.addEventListener('online', () => {
+// GESTIÓN DE CONEXIÓN ONLINE / OFFLINE Y SINCRONIZACIÓN TOTAL
+window.addEventListener('online', async () => {
     fbDB.goOnline();
     const syncStatus = document.getElementById('firebase-cloud-status');
-    if (syncStatus) syncStatus.innerText = "Activa Multi-Dispositivo ✓";
-    syncLocalPendingToFirebase();
+    if (syncStatus) syncStatus.innerText = "Bóveda Activa Multi-Dispositivo ✓";
+    await syncAllLocalModulesToCloud();
 });
 
 window.addEventListener('offline', () => {
@@ -181,7 +189,7 @@ window.addEventListener('offline', () => {
     if (syncStatus) syncStatus.innerText = "Pausada (Modo Offline)";
 });
 
-// BASE DE DATOS INDEXEDDB EXTENDIDA CON NUEVOS MÓDULOS (v3.5.3)
+// BASE DE DATOS INDEXEDDB UNIFICADA (v3.6.0)
 const db = new Dexie('TaskMasterDB');
 db.version(2).stores({
     events: 'id, date, priority, loc, alarmFired, notified, done',
@@ -192,6 +200,342 @@ db.version(2).stores({
     journal: 'dateKey',
     wishlist: '++id, category, done'
 });
+
+/* --- MOTOR DE AUTO-RECUPERACIÓN TOTAL Y RESPALDO EN LA NUBE (v3.6.0 | medbasha) --- */
+function getVaultRef(subpath = '') {
+    const cleanPath = subpath ? `/${subpath}` : '';
+    return fbDB.ref(`users_vault/${activeVaultId}${cleanPath}`);
+}
+
+async function setCloudVaultCode(customCode) {
+    const inputCode = customCode || prompt(
+        "Introduce tu Código Personal de Bóveda (ej. sharif-menorca) para sincronizar y recuperar tus datos en cualquier dispositivo:",
+        activeVaultId === 'taskmaster_default_vault' ? '' : activeVaultId
+    );
+    if (!inputCode || !inputCode.trim()) return;
+
+    activeVaultId = sanitizeFirebaseKey(inputCode);
+    await db.settings.put({ key: 'cloud_vault_id', value: activeVaultId });
+    
+    const vaultLabel = document.getElementById('cloud-vault-status');
+    if (vaultLabel) vaultLabel.innerText = `Bóveda: ${activeVaultId}`;
+
+    await checkAndPerformAutoRecovery(true);
+    await syncAllLocalModulesToCloud();
+    alert(`✓ Bóveda vinculada (${activeVaultId}). Tus datos están protegidos y sincronizados.`);
+}
+
+async function forceManualCloudRestore() {
+    if (!navigator.onLine) {
+        return alert("⚠️ Necesitas conexión a Internet para restaurar desde la nube.");
+    }
+    const restoredCount = await restoreFromCloudVault(true);
+    if (restoredCount > 0) {
+        await refreshAllUIViews();
+        alert(`✓ Auto-recuperación completada: Se han restaurado ${restoredCount} registros desde la nube.`);
+    } else {
+        alert("ℹ️ No se encontraron registros nuevos en la nube para restaurar.");
+    }
+}
+
+async function checkAndPerformAutoRecovery(forceMerge = false) {
+    if (!navigator.onLine || !fbDB) return;
+
+    try {
+        const localEventsCount = await db.events.count();
+        const localTodosCount = await db.todos.count();
+        const localNotesCount = await db.notes.count();
+        const localJournalCount = await db.journal.count();
+        const localLocsCount = await db.locations.count();
+
+        const isLocalEmpty = (localEventsCount + localTodosCount + localNotesCount + localJournalCount + localLocsCount) === 0;
+
+        if (isLocalEmpty || forceMerge) {
+            const restored = await restoreFromCloudVault(false);
+            if (restored > 0) {
+                console.log(`[TaskMaster Auto-Recovery] ${restored} elementos recuperados tras limpieza de caché/cambio de dispositivo.`);
+                showRecoveryToast(`☁️ Auto-recuperación: ${restored} registros restaurados`);
+                await refreshAllUIViews();
+            }
+        }
+    } catch (err) {
+        console.error("Error en comprobación de auto-recuperación:", err);
+    }
+}
+
+async function restoreFromCloudVault(overwriteLocal = false) {
+    if (!navigator.onLine || !fbDB) return 0;
+    let restoredItems = 0;
+
+    try {
+        // 1. Leer bóveda principal del usuario
+        const vaultSnap = await getVaultRef().once('value');
+        const vaultData = vaultSnap.val() || {};
+
+        // 2. Retrocompatibilidad: rescatar eventos antiguos de 'alarms/' si existen
+        const legacyAlarmsSnap = await fbDB.ref('alarms').once('value');
+        const legacyAlarms = legacyAlarmsSnap.val() || {};
+
+        // Restaurar Eventos (bóveda + legado)
+        const combinedEvents = { ...legacyAlarms, ...(vaultData.events || {}) };
+        for (const evId in combinedEvents) {
+            const ev = combinedEvents[evId];
+            if (!ev || !ev.title) continue;
+            const exists = await db.events.get(evId);
+            if (!exists || overwriteLocal) {
+                await db.events.put({
+                    id: evId,
+                    date: ev.date || selectedDateStr,
+                    title: ev.title,
+                    details: ev.details || '',
+                    time: ev.time || '--:--',
+                    priority: ev.priority || 'medium',
+                    loc: ev.loc || 'none',
+                    customCoords: ev.customCoords || null,
+                    notified: ev.notified || false,
+                    alarmFired: ev.alarmFired || false,
+                    done: ev.done || false,
+                    updatedAt: ev.updatedAt || Date.now()
+                });
+                restoredItems++;
+            }
+        }
+
+        // Restaurar Tareas y Repeticiones (todos)
+        if (vaultData.todos) {
+            const existingTodos = await db.todos.toArray();
+            for (const cloudKey in vaultData.todos) {
+                const td = vaultData.todos[cloudKey];
+                if (!td || !td.text) continue;
+                const duplicate = existingTodos.some(
+                    local => local.dateKey === td.dateKey && local.text === td.text && (local.time || '') === (td.time || '')
+                );
+                if (!duplicate) {
+                    await db.todos.add({
+                        dateKey: td.dateKey,
+                        text: td.text,
+                        done: td.done || false,
+                        category: td.category || 'personal',
+                        subtasks: td.subtasks || [],
+                        repeat: td.repeat || 'none',
+                        loc: td.loc || 'none',
+                        time: td.time || '',
+                        cloudSyncKey: cloudKey,
+                        updatedAt: td.updatedAt || Date.now()
+                    });
+                    restoredItems++;
+                }
+            }
+        }
+
+        // Restaurar Notas
+        if (vaultData.notes) {
+            for (const dateKey in vaultData.notes) {
+                const nt = vaultData.notes[dateKey];
+                if (!nt) continue;
+                const exists = await db.notes.get(dateKey);
+                if (!exists || overwriteLocal) {
+                    await db.notes.put({
+                        dateKey: dateKey,
+                        html: nt.html || '',
+                        text: nt.text || '',
+                        updatedAt: nt.updatedAt || Date.now()
+                    });
+                    restoredItems++;
+                }
+            }
+        }
+
+        // Restaurar Diario & Mood
+        if (vaultData.journal) {
+            for (const dateKey in vaultData.journal) {
+                const jr = vaultData.journal[dateKey];
+                if (!jr) continue;
+                const exists = await db.journal.get(dateKey);
+                if (!exists || overwriteLocal) {
+                    await db.journal.put({
+                        dateKey: dateKey,
+                        text: jr.text || '',
+                        mood: jr.mood || '😊',
+                        updatedAt: jr.updatedAt || Date.now()
+                    });
+                    restoredItems++;
+                }
+            }
+        }
+
+        // Restaurar Ubicaciones GPS Guardadas
+        if (vaultData.locations) {
+            for (const locKey in vaultData.locations) {
+                const locObj = vaultData.locations[locKey];
+                if (!locObj || !locObj.data) continue;
+                const exists = await db.locations.get(locKey);
+                if (!exists || overwriteLocal) {
+                    await db.locations.put({
+                        key: locKey,
+                        data: locObj.data
+                    });
+                    restoredItems++;
+                }
+            }
+        }
+
+        // Restaurar Lista de Compras / Wishlist
+        if (vaultData.wishlist) {
+            const existingWish = await db.wishlist.toArray();
+            for (const wKey in vaultData.wishlist) {
+                const wi = vaultData.wishlist[wKey];
+                if (!wi || !wi.name) continue;
+                const duplicate = existingWish.some(local => local.name === wi.name && local.category === wi.category);
+                if (!duplicate) {
+                    await db.wishlist.add({
+                        name: wi.name,
+                        price: wi.price || 0,
+                        category: wi.category || 'shop',
+                        done: wi.done || false,
+                        cloudSyncKey: wKey,
+                        updatedAt: wi.updatedAt || Date.now()
+                    });
+                    restoredItems++;
+                }
+            }
+        }
+
+        // Restaurar Perfil de Usuario si no existe
+        if (vaultData.settings && vaultData.settings.user_profile) {
+            const localProf = await db.settings.get('user_profile');
+            if (!localProf) {
+                await db.settings.put({ key: 'user_profile', value: vaultData.settings.user_profile });
+                currentProfileKey = vaultData.settings.user_profile;
+                applyProfileUI(currentProfileKey);
+            }
+        }
+    } catch (error) {
+        console.error("Error restaurando bóveda desde Firebase:", error);
+    }
+
+    return restoredItems;
+}
+
+function getTodoCloudKey(todo) {
+    if (todo.cloudSyncKey) return todo.cloudSyncKey;
+    const base = `${todo.dateKey}_${todo.text}_${todo.time || 'notime'}`;
+    return 'td_' + sanitizeFirebaseKey(base).substring(0, 60);
+}
+
+function syncTodoWithCloud(todo) {
+    if (!navigator.onLine || !fbDB || !todo) return;
+    const key = getTodoCloudKey(todo);
+    getVaultRef(`todos/${key}`).set({
+        dateKey: todo.dateKey,
+        text: todo.text,
+        done: Boolean(todo.done),
+        category: todo.category || 'personal',
+        subtasks: todo.subtasks || [],
+        repeat: todo.repeat || 'none',
+        loc: todo.loc || 'none',
+        time: todo.time || '',
+        updatedAt: todo.updatedAt || Date.now()
+    }).catch(err => console.error("Error sincronizando tarea:", err));
+}
+
+function deleteTodoFromCloud(todo) {
+    if (!navigator.onLine || !fbDB || !todo) return;
+    const key = getTodoCloudKey(todo);
+    getVaultRef(`todos/${key}`).remove().catch(() => {});
+}
+
+function syncNoteWithCloud(dateKey, noteObj) {
+    if (!navigator.onLine || !fbDB) return;
+    if (!noteObj) {
+        getVaultRef(`notes/${dateKey}`).remove().catch(() => {});
+    } else {
+        getVaultRef(`notes/${dateKey}`).set({
+            html: noteObj.html || '',
+            text: noteObj.text || '',
+            updatedAt: noteObj.updatedAt || Date.now()
+        }).catch(err => console.error("Error sincronizando nota:", err));
+    }
+}
+
+function syncLocationWithCloud(locKey, coordsData) {
+    if (!navigator.onLine || !fbDB) return;
+    getVaultRef(`locations/${locKey}`).set({
+        data: coordsData,
+        updatedAt: Date.now()
+    }).catch(err => console.error("Error sincronizando ubicación:", err));
+}
+
+function syncWishlistWithCloud(item) {
+    if (!navigator.onLine || !fbDB || !item) return;
+    const key = item.cloudSyncKey || ('wi_' + sanitizeFirebaseKey(`${item.category}_${item.name}`).substring(0, 50));
+    getVaultRef(`wishlist/${key}`).set({
+        name: item.name,
+        price: item.price || 0,
+        category: item.category || 'shop',
+        done: Boolean(item.done),
+        updatedAt: item.updatedAt || Date.now()
+    }).catch(() => {});
+}
+
+function deleteWishlistFromCloud(item) {
+    if (!navigator.onLine || !fbDB || !item) return;
+    const key = item.cloudSyncKey || ('wi_' + sanitizeFirebaseKey(`${item.category}_${item.name}`).substring(0, 50));
+    getVaultRef(`wishlist/${key}`).remove().catch(() => {});
+}
+
+async function syncAllLocalModulesToCloud() {
+    if (!navigator.onLine || !fbDB) return;
+
+    const allEvents = await db.events.toArray();
+    allEvents.forEach(ev => syncEventWithFirebase(ev));
+
+    const allTodos = await db.todos.toArray();
+    allTodos.forEach(td => syncTodoWithCloud(td));
+
+    const allNotes = await db.notes.toArray();
+    allNotes.forEach(nt => syncNoteWithCloud(nt.dateKey, nt));
+
+    const allJournal = await db.journal.toArray();
+    allJournal.forEach(jr => {
+        getVaultRef(`journal/${jr.dateKey}`).set({
+            text: jr.text,
+            mood: jr.mood,
+            updatedAt: jr.updatedAt || Date.now()
+        });
+    });
+
+    const allLocs = await db.locations.toArray();
+    allLocs.forEach(lc => syncLocationWithCloud(lc.key, lc.data));
+
+    const allWish = await db.wishlist.toArray();
+    allWish.forEach(wi => syncWishlistWithCloud(wi));
+}
+
+function showRecoveryToast(message) {
+    let toast = document.getElementById('tm-recovery-toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'tm-recovery-toast';
+        toast.style.cssText = 'position:fixed; bottom:82px; left:50%; transform:translateX(-50%); background:rgba(30,41,59,0.95); color:#fff; padding:10px 18px; border-radius:24px; font-size:0.85rem; font-weight:600; z-index:99999; box-shadow:0 6px 20px rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.15); transition:opacity 0.4s ease;';
+        document.body.appendChild(toast);
+    }
+    toast.innerText = message;
+    toast.style.opacity = '1';
+    setTimeout(() => {
+        if (toast) toast.style.opacity = '0';
+    }, 4500);
+}
+
+async function refreshAllUIViews() {
+    await initCalendar();
+    await renderCalSelectedEvents();
+    await renderDayTasksList();
+    await updateSummaryData();
+    await updateDashboardProfileCards();
+    await updateLocationUI();
+    await loadTabData();
+}
 
 const profilePresets = {
     personal: {
@@ -258,8 +602,8 @@ const profilePresets = {
 
 const tutorialSteps = [
     { icon: '🎭', title: 'Pilares Vitales', desc: 'Organiza tu día agrupando tareas en Personal, Trabajo, Salud, Finanzas o Urgencias.' },
-    { icon: '🎙️✨', title: 'Asistente de Voz IA', desc: 'Pulsa el micrófono superior y habla con naturalidad. Entiende fechas relativas como "el jueves que viene" o horas exactas.' },
-    { icon: '💻📱', title: 'Avisos Multi-Dispositivo', desc: 'Sincroniza tus eventos mediante Firebase para recibir alarmas en todos tus dispositivos en tiempo real.' },
+    { icon: '🎙️✨', title: 'Asistente de Voz IA', desc: 'Pulsa el micrófono superior y habla con naturalidad. Entiende fechas relativas como "el jueves que viene" o repeticiones semanales.' },
+    { icon: '☁️🛡️', title: 'Auto-Recuperación Total', desc: 'Tus eventos, tareas, notas y ubicaciones se respaldan automáticamente en la nube para recuperarse si limpias la caché o cambias de móvil.' },
     { icon: '📍🗺️', title: 'Geofencing de Alta Precisión', desc: 'Guarda tus ubicaciones frecuentes con precisión de 6 decimales para recibir alertas al aproximarte.' }
 ];
 let currentTutorialIndex = 0;
@@ -295,7 +639,7 @@ async function enableStoragePersistence() {
         const isPersisted = await navigator.storage.persist();
         const statusSpan = document.getElementById('db-protection-status');
         if (statusSpan) {
-            statusSpan.innerText = isPersisted ? "Seguro y Protegido ✓" : "Estándar (Navegador)";
+            statusSpan.innerText = isPersisted ? "Seguro y Protegido + Bóveda Cloud ✓" : "Bóveda Cloud Activa ✓";
         }
     }
 }
@@ -339,6 +683,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     try {
+        // Cargar identificador de bóveda personalizado si existe
+        const savedVaultRec = await db.settings.get('cloud_vault_id');
+        if (savedVaultRec && savedVaultRec.value) {
+            activeVaultId = sanitizeFirebaseKey(savedVaultRec.value);
+        }
+
+        // Ejecutar comprobación de auto-recuperación ANTES de decidir si mostrar pantalla de bienvenida
+        await checkAndPerformAutoRecovery(false);
+
         const savedProfileRec = await db.settings.get('user_profile');
         if (savedProfileRec) {
             currentProfileKey = savedProfileRec.value;
@@ -379,14 +732,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadTabData();
     await updateDashboardProfileCards();
 
-    // ESCUCHAR Y SINCRONIZAR EVENTOS Y DIARIO CON ONSNAPSHOT/ONVALUE EN TIEMPO REAL (v3.5.3)
+    // ESCUCHAR Y SINCRONIZAR EN TIEMPO REAL TODOS LOS MÓDULOS CON FIREBASE (v3.6.0)
     initFirebaseRealtimeSync();
+
+    // Asegurar respaldo inicial de cualquier dato local pendiente
+    await syncAllLocalModulesToCloud();
 
     const versionTag = document.getElementById('version-tag');
     if (versionTag) versionTag.innerText = 'TaskMaster Calendar Pro_v ' + config.version;
 });
 
-/* --- LÓGICA DE DASHBOARD DE PERFILES Y RESUMEN EN VIVO (v3.5.3) --- */
+/* --- LÓGICA DE DASHBOARD DE PERFILES Y RESUMEN EN VIVO (v3.6.0) --- */
 function selectProfileDashboard(profileKey, el) {
     document.querySelectorAll('.profile-chip').forEach(c => c.classList.remove('active'));
     if (el) el.classList.add('active');
@@ -404,6 +760,9 @@ function selectProfileDashboard(profileKey, el) {
     applyThemeUI(defaultTheme);
     db.settings.put({ key: 'app_theme', value: defaultTheme });
     db.settings.put({ key: 'user_profile', value: profileKey });
+    if (navigator.onLine && fbDB) {
+        getVaultRef('settings/user_profile').set(profileKey);
+    }
 }
 
 async function updateDashboardProfileCards() {
@@ -441,7 +800,6 @@ async function updateDashboardProfileCards() {
         }
     });
 
-    // ACTUALIZACIÓN DE LEMA DEL DÍA Y CONSEJO MOTIVACIONAL DESTACADO EN INICIO CON FRASES INTELIGENTES
     const moodSummaryEl = document.getElementById('dash-journal-summary');
     const langKey = getDeviceLang();
     const t = i18nDict[langKey];
@@ -464,7 +822,7 @@ async function updateDashboardProfileCards() {
     }
 }
 
-/* --- LÓGICA DEL DIARIO & MOOD TRACKER ENRIQUECIDO CON CONSEJO DINÁMICO (v3.5.3) --- */
+/* --- LÓGICA DEL DIARIO & MOOD TRACKER --- */
 function openJournalModal() {
     const modal = document.getElementById('journal-modal');
     if (modal) {
@@ -520,22 +878,21 @@ async function saveJournalEntry() {
     if (!text) return alert("Escribe una reflexión antes de guardar.");
 
     try {
+        const now = Date.now();
         await db.transaction('rw', db.journal, async () => {
             await db.journal.put({
                 dateKey: selectedDateStr,
                 text: text,
                 mood: selectedJournalMood,
-                updatedAt: Date.now()
+                updatedAt: now
             });
         });
 
-        // SINCRONIZAR DIARIO CON FIREBASE REALTIME
+        // SINCRONIZAR DIARIO CON BÓVEDA FIREBASE REALTIME
         if (navigator.onLine && fbDB) {
-            fbDB.ref('journal/' + selectedDateStr).set({
-                text: text,
-                mood: selectedJournalMood,
-                updatedAt: Date.now()
-            });
+            const payload = { text: text, mood: selectedJournalMood, updatedAt: now };
+            getVaultRef(`journal/${selectedDateStr}`).set(payload);
+            fbDB.ref('journal/' + selectedDateStr).set(payload);
         }
 
         closeJournalModal();
@@ -547,7 +904,7 @@ async function saveJournalEntry() {
     }
 }
 
-/* --- LÓGICA DE COMPRAS & WISHLIST (v3.5.3) --- */
+/* --- LÓGICA DE COMPRAS & WISHLIST --- */
 function openWishlistModal() {
     const modal = document.getElementById('wishlist-modal');
     if (modal) {
@@ -570,15 +927,21 @@ async function addWishlistItem(category) {
     if (!name) return alert("Escribe el nombre del artículo.");
 
     try {
+        const cloudKey = 'wi_' + sanitizeFirebaseKey(`${category}_${name}`).substring(0, 50);
+        const itemData = {
+            name: name,
+            price: price,
+            category: category,
+            done: false,
+            cloudSyncKey: cloudKey,
+            updatedAt: Date.now()
+        };
+
         await db.transaction('rw', db.wishlist, async () => {
-            await db.wishlist.add({
-                name: name,
-                price: price,
-                category: category,
-                done: false,
-                updatedAt: Date.now()
-            });
+            await db.wishlist.add(itemData);
         });
+
+        syncWishlistWithCloud(itemData);
 
         nameEl.value = '';
         priceEl.value = '';
@@ -625,21 +988,24 @@ async function renderShoppingList() {
 
 async function toggleWishlistItem(id, currentDone) {
     await db.wishlist.update(id, { done: !currentDone, updatedAt: Date.now() });
+    const updated = await db.wishlist.get(id);
+    if (updated) syncWishlistWithCloud(updated);
     await renderShoppingList();
 }
 
 async function deleteWishlistItem(id) {
+    const existing = await db.wishlist.get(id);
     await db.wishlist.delete(id);
+    if (existing) deleteWishlistFromCloud(existing);
     await renderShoppingList();
 }
 
-/* --- SINCRONIZACIÓN REACTIVA INSTANTÁNEA EN TIEMPO REAL CON FIREBASE ONVALUE (v3.5.3) --- */
+/* --- SINCRONIZACIÓN REACTIVA INSTANTÁNEA EN TIEMPO REAL CON FIREBASE ONVALUE (v3.6.0) --- */
 function initFirebaseRealtimeSync() {
     if (!fbDB) return;
 
-    // Escuchador global instantáneo onValue para alarmas/eventos
-    const alarmsRef = fbDB.ref('alarms');
-    alarmsRef.on('value', async (snapshot) => {
+    // 1. Escuchar eventos en la bóveda unificada
+    getVaultRef('events').on('value', async (snapshot) => {
         const data = snapshot.val();
         if (data) {
             for (let id in data) {
@@ -648,28 +1014,65 @@ function initFirebaseRealtimeSync() {
         }
     });
 
-    // Escuchador global instantáneo onValue para el diario de reflexiones
-    const journalRef = fbDB.ref('journal');
-    journalRef.on('value', async (snapshot) => {
+    // 2. Retrocompatibilidad con nodo legado 'alarms'
+    fbDB.ref('alarms').on('value', async (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+            for (let id in data) {
+                await mergeRemoteEventToLocal(id, data[id]);
+            }
+        }
+    });
+
+    // 3. Escuchar diario de reflexiones en tiempo real
+    getVaultRef('journal').on('value', async (snapshot) => {
         const data = snapshot.val();
         if (data) {
             for (let dateKey in data) {
-                await db.journal.put({
-                    dateKey: dateKey,
-                    text: data[dateKey].text,
-                    mood: data[dateKey].mood,
-                    updatedAt: data[dateKey].updatedAt || Date.now()
-                });
+                const localJr = await db.journal.get(dateKey);
+                if (!localJr || (data[dateKey].updatedAt && data[dateKey].updatedAt > (localJr.updatedAt || 0))) {
+                    await db.journal.put({
+                        dateKey: dateKey,
+                        text: data[dateKey].text,
+                        mood: data[dateKey].mood,
+                        updatedAt: data[dateKey].updatedAt || Date.now()
+                    });
+                }
             }
             await renderCalSelectedEvents();
             await updateDashboardProfileCards();
         }
     });
+
+    // 4. Escuchar notas en tiempo real
+    getVaultRef('notes').on('value', async (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+            let changed = false;
+            for (let dateKey in data) {
+                const localNt = await db.notes.get(dateKey);
+                if (!localNt || (data[dateKey].updatedAt && data[dateKey].updatedAt > (localNt.updatedAt || 0))) {
+                    await db.notes.put({
+                        dateKey: dateKey,
+                        html: data[dateKey].html || '',
+                        text: data[dateKey].text || '',
+                        updatedAt: data[dateKey].updatedAt || Date.now()
+                    });
+                    changed = true;
+                }
+            }
+            if (changed) {
+                await initCalendar();
+                await renderCalSelectedEvents();
+            }
+        }
+    });
 }
 
 async function mergeRemoteEventToLocal(id, data) {
+    if (!data || !data.title) return;
     const existing = await db.events.get(id);
-    if (!existing) {
+    if (!existing || (data.updatedAt && data.updatedAt > (existing.updatedAt || 0))) {
         const eventData = {
             id: id,
             date: data.date || selectedDateStr,
@@ -678,10 +1081,11 @@ async function mergeRemoteEventToLocal(id, data) {
             time: data.time || '--:--',
             priority: data.priority || 'medium',
             loc: data.loc || 'none',
-            notified: false,
-            alarmFired: false,
+            customCoords: data.customCoords || null,
+            notified: existing ? existing.notified : false,
+            alarmFired: existing ? existing.alarmFired : false,
             done: data.done || false,
-            updatedAt: Date.now()
+            updatedAt: data.updatedAt || Date.now()
         };
         await db.events.put(eventData);
         await initCalendar();
@@ -693,24 +1097,24 @@ async function mergeRemoteEventToLocal(id, data) {
 
 function syncEventWithFirebase(eventData) {
     if (!navigator.onLine || !fbDB) return;
-    fbDB.ref('alarms/' + eventData.id).set({
+    const payload = {
         title: eventData.title,
         date: eventData.date,
         time: eventData.time,
         priority: eventData.priority || 'medium',
         details: eventData.details || '',
         loc: eventData.loc || 'none',
+        customCoords: eventData.customCoords || null,
         done: eventData.done || false,
+        updatedAt: eventData.updatedAt || Date.now(),
         timestamp: Date.now()
-    }).catch(err => console.error("Error al sincronizar evento con Firebase:", err));
-}
+    };
 
-async function syncLocalPendingToFirebase() {
-    if (!navigator.onLine || !fbDB) return;
-    const allEvents = await db.events.toArray();
-    allEvents.forEach(ev => {
-        syncEventWithFirebase(ev);
-    });
+    getVaultRef(`events/${eventData.id}`).set(payload)
+        .catch(err => console.error("Error al sincronizar evento con bóveda Firebase:", err));
+
+    // Mantener compatibilidad con notificaciones push en nodo alarms
+    fbDB.ref('alarms/' + eventData.id).set(payload).catch(() => {});
 }
 
 async function toggleGlassMode(val) {
@@ -755,6 +1159,9 @@ function applyProfileUI(profileKey) {
 async function selectUserProfile(profileKey) {
     triggerHaptic();
     await db.settings.put({ key: 'user_profile', value: profileKey });
+    if (navigator.onLine && fbDB) {
+        getVaultRef('settings/user_profile').set(profileKey);
+    }
     applyProfileUI(profileKey);
 
     const defaultTheme = profilePresets[profileKey]?.defaultTheme || 'cafe';
@@ -786,7 +1193,7 @@ function renderTutorialStep() {
     document.getElementById('tut-desc').innerText = step.desc;
     document.getElementById('tut-counter').innerText = `${currentTutorialIndex + 1} / ${tutorialSteps.length}`;
     document.getElementById('tut-prev-btn').style.visibility = (currentTutorialIndex === 0) ? 'hidden' : 'visible';
-    document.getElementById('tut-next-btn').innerText = (currentTutorialIndex === tutorialSteps.length - 1) ? 'Entendido ✓' : 'Siguiente';
+    document.getElementById('tut-next-btn').innerText = (currentTutorialIndex === tutorialSteps.length - 1) ? '¡Entendido!' : 'Siguiente';
 }
 
 function moveTutorialStep(dir) {
@@ -877,7 +1284,7 @@ function handleFabClick() {
     }
 }
 
-/* --- NAVEGACIÓN CORREGIDA DE MES Y DÍA ACTUAL (v3.5.3 | medbasha) --- */
+/* --- NAVEGACIÓN CORREGIDA DE MES Y DÍA ACTUAL (v3.6.0 | medbasha) --- */
 async function goToToday() {
     const today = new Date();
     currentYear = today.getFullYear();
@@ -902,12 +1309,10 @@ async function changeMonth(dir) {
         currentYear++; 
     }
     
-    // Si volvemos al mes y año actuales reales, seleccionar el día de hoy
     const today = new Date();
     if (currentYear === today.getFullYear() && currentMonth === today.getMonth()) {
         selectedDateStr = getFormattedDateKey(today);
     } else {
-        // Si navegamos a otro mes, seleccionar el día 1 de dicho mes
         selectedDateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01`;
     }
 
@@ -933,7 +1338,7 @@ async function loadTabData() {
     await renderCalSelectedEvents();
 }
 
-/* --- MOTOR DE VOZ IA INTELIGENTE CON RECONOCIMIENTO DE REPETICIONES Y GUARDADO TRANSACCIONAL --- */
+/* --- MOTOR DE VOZ IA INTELIGENTE CON RECONOCIMIENTO DE REPETICIONES Y RESPALDO CLOUD --- */
 function toggleGlobalVoiceAssistant() {
     const micBtn = document.getElementById('btn-global-mic');
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -980,19 +1385,17 @@ async function processUniversalVoiceCommand(phrase) {
     const lower = phrase.toLowerCase();
     let targetDate = new Date();
 
-    // 1. Detección automática de repetición periódica (ej. "todos los viernes", "cada día")
     let repeatMode = 'none';
     if (lower.includes('todos los') || lower.includes('cada') || lower.includes('todas las')) {
         if (lower.includes('día') || lower.includes('dia') || lower.includes('diariamente')) {
             repeatMode = 'daily';
         } else {
-            repeatMode = 'weekly'; // Asigna repetición semanal por defecto al pedir un día repetido
+            repeatMode = 'weekly';
         }
     } else if (lower.includes('cada mes') || lower.includes('mensualmente')) {
         repeatMode = 'monthly';
     }
 
-    // 2. Mapeo del día de la semana
     const weekDaysMap = { 'domingo': 0, 'lunes': 1, 'martes': 2, 'miércoles': 3, 'miercoles': 3, 'jueves': 4, 'viernes': 5, 'sábado': 6, 'sabado': 6 };
     let weekDayFound = null;
 
@@ -1030,7 +1433,6 @@ async function processUniversalVoiceCommand(phrase) {
 
     const targetDateKey = getFormattedDateKey(targetDate);
 
-    // 3. Extracción de horas
     let timeFound = '';
     const standardTimeMatch = lower.match(/(\d{1,2})[:\.](\d{2})/);
     const spokenTimeMatch = lower.match(/(?:a las|at)\s*(\d{1,2})\s*(?:y|\:)\s*(\d{1,2})/i);
@@ -1095,19 +1497,24 @@ async function processUniversalVoiceCommand(phrase) {
             alert(`✓ Evento asignado al ${targetDateKey}:\n"${phrase}"\n⏰ Alarma a las: ${eventData.time}`);
             switchTab('calendar');
         } else {
+            const newTodo = {
+                dateKey: targetDateKey,
+                text: phrase,
+                done: false,
+                category: category,
+                subtasks: [],
+                repeat: repeatMode,
+                loc: loc,
+                time: timeFound,
+                updatedAt: Date.now()
+            };
+            newTodo.cloudSyncKey = getTodoCloudKey(newTodo);
+
             await db.transaction('rw', db.todos, async () => {
-                await db.todos.add({
-                    dateKey: targetDateKey,
-                    text: phrase,
-                    done: false,
-                    category: category,
-                    subtasks: [],
-                    repeat: repeatMode,
-                    loc: loc,
-                    time: timeFound,
-                    updatedAt: Date.now()
-                });
+                await db.todos.add(newTodo);
             });
+
+            syncTodoWithCloud(newTodo);
             
             selectedDateStr = targetDateKey;
             currentYear = targetDate.getFullYear();
@@ -1158,7 +1565,11 @@ async function clearTabNotes() {
             await db.notes.delete(selectedDateStr);
             await db.journal.delete(selectedDateStr);
         });
-        if (fbDB) fbDB.ref('journal/' + selectedDateStr).remove();
+        syncNoteWithCloud(selectedDateStr, null);
+        if (fbDB) {
+            getVaultRef(`journal/${selectedDateStr}`).remove().catch(() => {});
+            fbDB.ref('journal/' + selectedDateStr).remove().catch(() => {});
+        }
         await renderCalSelectedEvents();
         await updateDashboardProfileCards();
         await initCalendar();
@@ -1202,12 +1613,15 @@ async function loadPresetTemplate(type) {
     try {
         await db.transaction('rw', db.todos, async () => {
             for (let text of items) {
-                await db.todos.add({ dateKey: selectedDateStr, text, done: false, category: 'trabajo', loc: 'none', time: '', updatedAt: Date.now() });
+                const td = { dateKey: selectedDateStr, text, done: false, category: 'trabajo', loc: 'none', time: '', updatedAt: Date.now() };
+                td.cloudSyncKey = getTodoCloudKey(td);
+                await db.todos.add(td);
+                syncTodoWithCloud(td);
             }
         });
         await renderDayTasksList();
         await updateDashboardProfileCards();
-        alert("✓ Plantilla cargada para el día actual.");
+        alert("✓ Plantilla cargada y respaldada en la nube.");
     } catch (e) {
         console.error("Error al cargar plantilla:", e);
     }
@@ -1390,27 +1804,24 @@ async function convertNoteToAlarm() {
         syncEventWithFirebase(eventData);
         await initCalendar();
         await updateDashboardProfileCards();
-        alert("✓ Nota convertida en Alerta correctamente.");
+        alert("✓ Nota convertida en Alerta y respaldada en la nube.");
     } catch (e) {
         console.error("Error al convertir nota en alarma:", e);
     }
 }
 
-// BARRA DE SEMANA CON LÓGICA DE PLANIFICACIÓN (DOMINGO MUESTRA LA PRÓXIMA SEMANA)
 function renderWeekBar() {
     const container = document.getElementById('week-bar');
     if (!container) return;
     container.innerHTML = '';
     
     const curr = new Date();
-    const dayOfWeek = curr.getDay(); // 0 es Domingo
+    const dayOfWeek = curr.getDay();
     const firstDay = new Date(curr);
 
     if (dayOfWeek === 0) {
-        // Si es Domingo, avanzar al Lunes de la semana que entra
         firstDay.setDate(curr.getDate() + 1);
     } else {
-        // De Lunes a Sábado, calcular el Lunes de la semana actual
         firstDay.setDate(curr.getDate() - dayOfWeek + 1);
     }
 
@@ -1453,7 +1864,6 @@ function handleSaveTaskClick() {
     }
 }
 
-// APERTURA AUTOMÁTICA DEL RELOJ AL PEDIR ALARMA
 function promptAddReminderTime() {
     const modal = document.getElementById('reminder-prompt-modal');
     if (modal) modal.style.display = 'none';
@@ -1476,7 +1886,7 @@ function promptSaveWithoutReminder() {
     executeSaveTask();
 }
 
-/* --- GUARDADO TRANSACCIONAL ATÓMICO TIPO DOCSAFE DE TAREAS --- */
+/* --- GUARDADO TRANSACCIONAL ATÓMICO DE TAREAS + RESPALDO NUBE --- */
 async function executeSaveTask() {
     const txt = document.getElementById('taskInputText').value.trim();
     const category = document.getElementById('taskCategorySelect').value;
@@ -1492,18 +1902,21 @@ async function executeSaveTask() {
         : [];
 
     try {
+        const todoObj = { 
+            dateKey: selectedDateStr, 
+            text: txt, 
+            done: false, 
+            category, 
+            subtasks, 
+            repeat, 
+            loc, 
+            time,
+            updatedAt: Date.now()
+        };
+        todoObj.cloudSyncKey = getTodoCloudKey(todoObj);
+
         await db.transaction('rw', db.todos, db.events, async () => {
-            const todoId = await db.todos.add({ 
-                dateKey: selectedDateStr, 
-                text: txt, 
-                done: false, 
-                category, 
-                subtasks, 
-                repeat, 
-                loc, 
-                time,
-                updatedAt: Date.now()
-            });
+            const todoId = await db.todos.add(todoObj);
 
             if (loc !== 'none' || time) {
                 const eventId = 'ev_t_' + todoId;
@@ -1524,11 +1937,14 @@ async function executeSaveTask() {
                 
                 await db.events.put(eventData);
 
-                if (time) {
+                if (time || loc !== 'none') {
                     syncEventWithFirebase(eventData);
                 }
             }
         });
+
+        // Respaldar tarea en la bóveda en la nube
+        syncTodoWithCloud(todoObj);
 
         const taskArea = document.getElementById('taskInputText');
         if (taskArea) {
@@ -1592,7 +2008,7 @@ async function renderDayTasksList() {
             <div class="todo-main-row">
                 <input type="checkbox" class="todo-checkbox" ${todo.done ? 'checked' : ''} onchange="triggerHaptic(); toggleDayTodo(${todo.id}, ${todo.done});">
                 <span class="todo-text-span">${todo.text}</span>
-                <button class="btn-reminder" onclick="triggerHaptic(); setTaskTimePrompt(${todo.id}, '${todo.text}', '${todo.time || ''}');">🔔 ${todo.time ? todo.time : 'Recordar'}</button>
+                <button class="btn-reminder" onclick="triggerHaptic(); setTaskTimePrompt(${todo.id}, '${todo.text.replace(/'/g, "\\'")}', '${todo.time || ''}');">🔔 ${todo.time ? todo.time : 'Recordar'}</button>
                 <button class="event-del" onclick="triggerHaptic(); deleteDayTodo(${todo.id});">✕</button>
             </div>
             ${subtasksHtml}
@@ -1602,7 +2018,6 @@ async function renderDayTasksList() {
     await updateTaskProgress();
 }
 
-// ACTUALIZACIÓN DE HORA Y RE-RENDERIZADO REACTIVO DESDE "RECORDAR"
 async function setTaskTimePrompt(todoId, title, currentTime) {
     const timeStr = prompt(`⏰ Asignar hora de alarma para:\n"${title}"`, currentTime || "09:00");
     if (!timeStr) return;
@@ -1611,7 +2026,12 @@ async function setTaskTimePrompt(todoId, title, currentTime) {
         await db.transaction('rw', db.todos, db.events, async () => {
             const isTodo = await db.todos.get(todoId);
             if (isTodo) {
-                await db.todos.update(todoId, { time: timeStr, updatedAt: Date.now() });
+                deleteTodoFromCloud(isTodo);
+                const updatedTodo = { ...isTodo, time: timeStr, updatedAt: Date.now() };
+                updatedTodo.cloudSyncKey = getTodoCloudKey(updatedTodo);
+                await db.todos.update(todoId, { time: timeStr, cloudSyncKey: updatedTodo.cloudSyncKey, updatedAt: updatedTodo.updatedAt });
+                syncTodoWithCloud(updatedTodo);
+
                 const eventId = 'ev_t_' + todoId;
                 const eventData = {
                     id: eventId,
@@ -1650,7 +2070,9 @@ async function toggleSubtask(todoId, subtaskIdx) {
         const todo = await db.todos.get(todoId);
         if (todo && todo.subtasks) {
             todo.subtasks[subtaskIdx].done = !todo.subtasks[subtaskIdx].done;
-            await db.todos.update(todoId, { subtasks: todo.subtasks, updatedAt: Date.now() });
+            todo.updatedAt = Date.now();
+            await db.todos.update(todoId, { subtasks: todo.subtasks, updatedAt: todo.updatedAt });
+            syncTodoWithCloud(todo);
             await renderDayTasksList();
         }
     } catch (e) {
@@ -1665,6 +2087,9 @@ async function toggleDayTodo(id, currentDone) {
 
         await db.transaction('rw', db.todos, async () => {
             await db.todos.update(id, { done: newDoneState, updatedAt: Date.now() });
+            if (todo) {
+                syncTodoWithCloud({ ...todo, done: newDoneState, updatedAt: Date.now() });
+            }
 
             if (newDoneState && todo && todo.repeat && todo.repeat !== 'none') {
                 const nextDate = new Date(todo.dateKey);
@@ -1685,7 +2110,7 @@ async function toggleDayTodo(id, currentDone) {
                 }
 
                 const nextDateKey = getFormattedDateKey(nextDate);
-                await db.todos.add({
+                const nextTodo = {
                     dateKey: nextDateKey,
                     text: todo.text,
                     done: false,
@@ -1695,7 +2120,11 @@ async function toggleDayTodo(id, currentDone) {
                     loc: todo.loc,
                     time: nextTime,
                     updatedAt: Date.now()
-                });
+                };
+                nextTodo.cloudSyncKey = getTodoCloudKey(nextTodo);
+
+                await db.todos.add(nextTodo);
+                syncTodoWithCloud(nextTodo);
             }
         });
 
@@ -1708,11 +2137,16 @@ async function toggleDayTodo(id, currentDone) {
 
 async function deleteDayTodo(id) {
     try {
+        const existingTodo = await db.todos.get(id);
         await db.transaction('rw', db.todos, db.events, async () => {
             await db.todos.delete(id);
             await db.events.delete('ev_t_' + id);
         });
-        if (fbDB) fbDB.ref('alarms/ev_t_' + id).remove();
+        if (existingTodo) deleteTodoFromCloud(existingTodo);
+        if (fbDB) {
+            getVaultRef(`events/ev_t_${id}`).remove().catch(() => {});
+            fbDB.ref('alarms/ev_t_' + id).remove().catch(() => {});
+        }
         await renderDayTasksList();
         await initCalendar();
         await updateDashboardProfileCards();
@@ -1721,7 +2155,7 @@ async function deleteDayTodo(id) {
     }
 }
 
-/* --- GUARDADO TRANSACCIONAL DE NOTAS TIPO DOCSAFE --- */
+/* --- GUARDADO TRANSACCIONAL DE NOTAS + RESPALDO NUBE --- */
 async function saveTabNotes() {
     const area = document.getElementById('tab-day-notes');
     if (!area) return;
@@ -1730,18 +2164,22 @@ async function saveTabNotes() {
     const plainText = area.innerText.trim();
 
     try {
+        let notePayload = null;
         await db.transaction('rw', db.notes, async () => {
             if (!plainText && !htmlContent.includes('<img')) {
                 await db.notes.delete(selectedDateStr);
             } else {
-                await db.notes.put({ 
+                notePayload = { 
                     dateKey: selectedDateStr, 
                     html: htmlContent, 
                     text: plainText,
                     updatedAt: Date.now()
-                });
+                };
+                await db.notes.put(notePayload);
             }
         });
+
+        syncNoteWithCloud(selectedDateStr, notePayload);
 
         await renderCalSelectedEvents();
         await initCalendar();
@@ -1824,7 +2262,6 @@ function handleLocSelectChange(val) {
     if (val === 'custom_map') openMapPicker('event_custom');
 }
 
-// APERTURA AUTOMÁTICA DEL MAPA SOBRE EL MODAL
 function openMapPicker(type) {
     activeTargetType = type;
     const mapModal = document.getElementById('map-modal');
@@ -1881,7 +2318,9 @@ async function confirmMapLocation() {
             statusDiv.style.display = 'block';
         }
     } else if (activeTargetType) {
-        await db.locations.put({ key: activeTargetType, data: { lat: tempCoords.lat, lon: tempCoords.lon } });
+        const coordsPayload = { lat: tempCoords.lat, lon: tempCoords.lon };
+        await db.locations.put({ key: activeTargetType, data: coordsPayload });
+        syncLocationWithCloud(activeTargetType, coordsPayload);
         await updateLocationUI();
     }
     closeMapPicker();
@@ -1979,7 +2418,7 @@ async function renderCalSelectedEvents() {
                 <div class="event-info">
                     <div class="event-time">
                         ${ev.time !== '--:--' ? ev.time : 'Solo Ubicación'}
-                        <button class="btn-reminder" onclick="triggerHaptic(); setTaskTimePrompt('${ev.id}', '${ev.title}', '${ev.time}');">🔔 Recordar</button>
+                        <button class="btn-reminder" onclick="triggerHaptic(); setTaskTimePrompt('${ev.id}', '${ev.title.replace(/'/g, "\\'")}', '${ev.time}');">🔔 Recordar</button>
                     </div>
                     <div class="event-title-txt">${ev.title}</div>
                     ${ev.details ? `<div class="event-desc-txt">${ev.details}</div>` : ''}
@@ -2030,7 +2469,10 @@ async function toggleEventDone(id, currentDone) {
     const newDone = !currentDone;
     try {
         await db.events.update(id, { done: newDone, updatedAt: Date.now() });
-        if (fbDB) fbDB.ref('alarms/' + id + '/done').set(newDone);
+        if (fbDB) {
+            getVaultRef(`events/${id}/done`).set(newDone).catch(() => {});
+            fbDB.ref('alarms/' + id + '/done').set(newDone).catch(() => {});
+        }
         await renderCalSelectedEvents();
         await updateDashboardProfileCards();
     } catch (e) {
@@ -2075,7 +2517,10 @@ async function saveEventFromCalModal() {
 async function deleteEvent(id) {
     try {
         await db.events.delete(id);
-        if (fbDB) fbDB.ref('alarms/' + id).remove();
+        if (fbDB) {
+            getVaultRef(`events/${id}`).remove().catch(() => {});
+            fbDB.ref('alarms/' + id).remove().catch(() => {});
+        }
         await initCalendar();
         await renderCalSelectedEvents();
         await updateSummaryData();
@@ -2120,7 +2565,6 @@ function updatePermissionBanner() {
     }
 }
 
-// REGISTRO Y GUARDADO DEL TOKEN FCM PARA CUALQUIER DISPOSITIVO
 function requestPermissions() {
     unlockAudioContext();
     triggerHaptic();
@@ -2132,6 +2576,7 @@ function requestPermissions() {
                 fbMessaging.getToken({ vapidKey }).then(token => {
                     if (token) {
                         fbDB.ref('device_tokens/main_device').set(token);
+                        getVaultRef('device_token').set(token);
                         console.log("Token FCM registrado correctamente en Firebase.");
                     }
                 }).catch(err => console.error("Error al obtener FCM Token:", err));
